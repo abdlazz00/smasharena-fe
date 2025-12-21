@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Cookies from 'js-cookie';
 
-export default function AuthCallback() {
+// 1. Komponen Internal: Berisi logika yang menggunakan useSearchParams
+function AuthContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
@@ -31,10 +32,28 @@ export default function AuthCallback() {
         }
     }, [searchParams, router]);
 
+    // Tampilan saat logika sedang berjalan (bisa null atau spinner juga)
+    return (
+        <div className="flex flex-col items-center">
+            <div className="w-12 h-12 border-4 border-navy-700 border-t-neon rounded-full animate-spin mb-4"></div>
+            <p>Sedang memverifikasi data...</p>
+        </div>
+    );
+}
+
+// 2. Komponen Utama: Membungkus AuthContent dengan Suspense
+export default function AuthCallback() {
     return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-navy-950 text-white">
-            <div className="w-12 h-12 border-4 border-navy-700 border-t-neon rounded-full animate-spin mb-4"></div>
-            <p>Sedang memproses login...</p>
+            <Suspense fallback={
+                // Tampilan Loading sementara menunggu parameter URL siap
+                <div className="flex flex-col items-center">
+                    <div className="w-12 h-12 border-4 border-navy-700 border-t-neon rounded-full animate-spin mb-4"></div>
+                    <p>Sedang memproses login...</p>
+                </div>
+            }>
+                <AuthContent />
+            </Suspense>
         </div>
     );
 }
