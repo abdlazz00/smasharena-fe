@@ -10,6 +10,7 @@ export default function POSPage() {
 
     // --- STATE UTAMA ---
     const [shiftStatus, setShiftStatus] = useState(null); 
+    const [sessionData, setSessionData] = useState(null); // Data Sesi
     const [products, setProducts] = useState([]);
     const [activeBookings, setActiveBookings] = useState([]); 
     const [loading, setLoading] = useState(true);
@@ -27,7 +28,6 @@ export default function POSPage() {
     const [showCheckoutModal, setShowCheckoutModal] = useState(false); 
     const [showSummaryModal, setShowSummaryModal] = useState(false); 
     
-    // MODAL SUKSES & DATA TRANSAKSI
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [lastTransaction, setLastTransaction] = useState(null);
     
@@ -42,15 +42,21 @@ export default function POSPage() {
 
     // --- 1. INISIALISASI DATA ---
     const fetchInitialData = async () => {
-        setLoading(true);
         try {
             const resStatus = await api.get('/admin/cash-session/status');
             
+            console.log("Session Status:", resStatus.data); // DEBUG LOG
+
             if (resStatus.data.status === 'closed') {
                 setShiftStatus('closed');
                 setShowStartModal(true); 
             } else {
                 setShiftStatus('open');
+                // Pastikan set sessionData meskipun 0
+                setSessionData({
+                    starting_cash: resStatus.data.session?.starting_cash || 0,
+                    total_cash_sales: resStatus.data.session?.total_cash_sales || 0
+                });
                 loadPosData();
             }
         } catch (error) {
@@ -74,6 +80,7 @@ export default function POSPage() {
     };
 
     useEffect(() => {
+        // Fetch awal
         fetchInitialData();
     }, []);
 
@@ -120,7 +127,6 @@ export default function POSPage() {
     const confirmCheckout = () => {
         if (cart.length === 0) return showNotification("Keranjang kosong!", true);
         if (paymentMethod === 'open_bill' && !selectedBooking) return showNotification("Pilih Booking dulu untuk Open Bill!", true);
-        
         setCustomerCash(''); 
         setShowCheckoutModal(true);
     };
@@ -145,24 +151,27 @@ export default function POSPage() {
             };
 
             const res = await api.post('/admin/orders', payload);
-            
-            // AMBIL NAMA KASIR DARI COOKIES
             const cashierName = Cookies.get('user_name') || 'Admin';
 
-            // SIMPAN DATA TRANSAKSI LENGKAP UNTUK DICETAK
             setLastTransaction({
                 ...res.data.data,
                 cash_given: customerCash,
                 change: calculateChange(),
-                items: cart, // Kirim cart agar namanya ada (penting untuk struk)
-                cashier_name: cashierName // Simpan nama kasir
+                items: cart, 
+                cashier_name: cashierName 
             });
 
             showNotification("Transaksi Berhasil!");
             setCart([]); 
+            
+            // REFRESH SETELAH TRANSAKSI BERHASIL
+            // 1. Refresh Stok Produk
             loadPosData(); 
+            // 2. Refresh Omzet Shift (Penting!)
+            fetchInitialData(); 
+
             setShowCheckoutModal(false);
-            setShowSuccessModal(true); // Buka Modal Sukses
+            setShowSuccessModal(true); 
             setCustomerCash('');
 
         } catch (error) {
@@ -187,7 +196,7 @@ export default function POSPage() {
             await api.post('/admin/cash-session/open', { starting_cash: startCash });
             setShiftStatus('open');
             setShowStartModal(false);
-            loadPosData();
+            fetchInitialData(); 
             showNotification("Shift Dibuka! Selamat bekerja.");
         } catch (error) {
             showNotification("Gagal buka shift.", true);
@@ -277,11 +286,33 @@ export default function POSPage() {
 
             {/* KANAN: KERANJANG */}
             <div className="w-full md:w-96 bg-navy-800 border border-navy-700 rounded-2xl flex flex-col h-full shadow-2xl">
-                <div className="p-4 border-b border-navy-700 flex justify-between items-center bg-navy-900 rounded-t-2xl">
-                    <h3 className="font-bold text-white flex items-center gap-2"><i className="fa-solid fa-cart-shopping text-neon"></i> Keranjang</h3>
-                    <button onClick={() => setShowEndModal(true)} className="text-xs bg-red-500/10 text-red-500 px-3 py-1 rounded-lg hover:bg-red-500 hover:text-white transition font-bold border border-red-500/20">
-                        <i className="fa-solid fa-power-off mr-1"></i> Tutup Shift
-                    </button>
+                
+                {/* --- HEADER KASIR & INFO SESSION --- */}
+                <div className="p-4 bg-navy-900 border-b border-navy-700 rounded-t-2xl">
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="font-bold text-white flex items-center gap-2"><i className="fa-solid fa-cart-shopping text-neon"></i> Keranjang</h3>
+                        <button onClick={() => setShowEndModal(true)} className="text-xs bg-red-500/10 text-red-500 px-3 py-1 rounded-lg hover:bg-red-500 hover:text-white transition font-bold border border-red-500/20">
+                            <i className="fa-solid fa-power-off mr-1"></i> Tutup Shift
+                        </button>
+                    </div>
+                    
+                    {/* KOTAK INFO SESSION (DIPERBAIKI) */}
+                    {sessionData ? (
+                        <div className="grid grid-cols-2 gap-2 bg-navy-800 p-2 rounded-xl border border-navy-700">
+                            <div className="text-center border-r border-navy-700">
+                                <p className="text-[10px] text-slate-400 uppercase font-bold">Kas Awal</p>
+                                <p className="text-sm font-bold text-white">Rp {parseInt(sessionData.starting_cash).toLocaleString()}</p>
+                            </div>
+                            <div className="text-center">
+                                <p className="text-[10px] text-slate-400 uppercase font-bold">Omzet Sesi Ini</p>
+                                <p className="text-sm font-bold text-neon">Rp {parseInt(sessionData.total_cash_sales).toLocaleString()}</p>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="text-center text-xs text-slate-500 py-2">
+                            Memuat data sesi...
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
@@ -306,14 +337,14 @@ export default function POSPage() {
                 </div>
 
                 <div className="p-4 bg-navy-900 border-t border-navy-700 rounded-b-2xl space-y-4">
-                    <div className="grid grid-cols-2 gap-2">
-                        {['cash', 'qris', 'transfer', 'open_bill'].map(m => (
+                    <div className="grid grid-cols-3 gap-2">
+                        {['cash', 'transfer', 'open_bill'].map(m => (
                             <button 
                                 key={m} 
                                 onClick={() => setPaymentMethod(m)} 
                                 className={`py-2 px-1 rounded-lg text-xs font-bold uppercase border transition flex flex-col items-center justify-center gap-1 ${paymentMethod === m ? 'bg-neon text-navy-900 border-neon' : 'bg-navy-800 text-slate-400 border-navy-700 hover:border-slate-500'}`}
                             >
-                                <i className={`fa-solid ${m === 'cash' ? 'fa-money-bill' : m === 'qris' ? 'fa-qrcode' : m === 'transfer' ? 'fa-building-columns' : 'fa-receipt'} text-sm`}></i>
+                                <i className={`fa-solid ${m === 'cash' ? 'fa-money-bill' : m === 'transfer' ? 'fa-building-columns' : 'fa-receipt'} text-sm`}></i>
                                 {m.replace('_', ' ')}
                             </button>
                         ))}
@@ -343,7 +374,8 @@ export default function POSPage() {
                 </div>
             </div>
 
-            {/* --- MODAL 1: BUKA SHIFT --- */}
+            {/* MODAL LAINNYA TETAP SAMA SEPERTI SEBELUMNYA */}
+            {/* Modal Start Shift */}
             {showStartModal && (
                 <div className="fixed inset-0 z-[60] bg-navy-950/90 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="bg-navy-800 w-full max-w-sm rounded-2xl border border-navy-600 shadow-2xl p-6 text-center animate-bounce-small relative">
@@ -352,36 +384,16 @@ export default function POSPage() {
                         </div>
                         <h3 className="font-bold text-xl text-white mb-2">Buka Shift Kasir</h3>
                         <p className="text-slate-400 text-sm mb-6">Masukkan modal awal di laci kasir.</p>
-                        
-                        <input 
-                            type="number" 
-                            placeholder="Rp 0" 
-                            value={startCash} 
-                            onChange={e => setStartCash(e.target.value)} 
-                            className="w-full bg-navy-900 border border-navy-600 rounded-xl px-4 py-3 text-white text-center text-lg font-bold mb-4 focus:border-neon outline-none" 
-                            autoFocus 
-                        />
-                        
+                        <input type="number" placeholder="Rp 0" value={startCash} onChange={e => setStartCash(e.target.value)} className="w-full bg-navy-900 border border-navy-600 rounded-xl px-4 py-3 text-white text-center text-lg font-bold mb-4 focus:border-neon outline-none" autoFocus />
                         <div className="flex gap-3">
-                            <button 
-                                onClick={() => router.push('/admin/dashboard')} 
-                                className="flex-1 bg-navy-900 hover:bg-navy-700 text-slate-300 font-bold py-3 rounded-xl border border-navy-600 transition"
-                            >
-                                Kembali
-                            </button>
-                            <button 
-                                onClick={handleOpenShift} 
-                                disabled={processing} 
-                                className="flex-1 bg-neon hover:bg-neon-hover text-navy-900 font-bold py-3 rounded-xl shadow-lg transition"
-                            >
-                                {processing ? '...' : 'Buka Kasir'}
-                            </button>
+                            <button onClick={() => router.push('/admin/dashboard')} className="flex-1 bg-navy-900 hover:bg-navy-700 text-slate-300 font-bold py-3 rounded-xl border border-navy-600 transition">Kembali</button>
+                            <button onClick={handleOpenShift} disabled={processing} className="flex-1 bg-neon hover:bg-neon-hover text-navy-900 font-bold py-3 rounded-xl shadow-lg transition">{processing ? '...' : 'Buka Kasir'}</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* --- MODAL 2: INPUT TUTUP SHIFT --- */}
+            {/* Modal Tutup Shift */}
             {showEndModal && (
                 <div className="fixed inset-0 z-[60] bg-navy-950/90 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="bg-navy-800 w-full max-w-sm rounded-2xl border border-navy-600 shadow-2xl p-6 relative animate-bounce-small">
@@ -389,169 +401,84 @@ export default function POSPage() {
                             <h3 className="font-bold text-xl text-white">Tutup Shift</h3>
                             <button onClick={() => setShowEndModal(false)} className="text-slate-400 hover:text-white"><i className="fa-solid fa-xmark text-lg"></i></button>
                         </div>
-                        
                         <p className="text-slate-400 text-sm mb-6">Hitung uang tunai fisik di laci saat ini.</p>
-                        
                         <div className="space-y-4 mb-6">
-                            <div>
-                                <label className="text-xs text-slate-400 font-bold uppercase mb-1 block">Total Uang Fisik (Cash)</label>
-                                <input type="number" placeholder="Rp 0" value={endCash} onChange={e => setEndCash(e.target.value)} className="w-full bg-navy-900 border border-navy-600 rounded-xl px-4 py-3 text-white font-bold focus:border-neon outline-none" />
-                            </div>
-                            <div>
-                                <label className="text-xs text-slate-400 font-bold uppercase mb-1 block">Catatan (Opsional)</label>
-                                <textarea rows="2" value={endNote} onChange={e => setEndNote(e.target.value)} className="w-full bg-navy-900 border border-navy-600 rounded-xl px-4 py-2 text-white text-sm focus:border-neon outline-none" placeholder="Selisih karena..."></textarea>
-                            </div>
+                            <div><label className="text-xs text-slate-400 font-bold uppercase mb-1 block">Total Uang Fisik (Cash)</label><input type="number" placeholder="Rp 0" value={endCash} onChange={e => setEndCash(e.target.value)} className="w-full bg-navy-900 border border-navy-600 rounded-xl px-4 py-3 text-white font-bold focus:border-neon outline-none" /></div>
+                            <div><label className="text-xs text-slate-400 font-bold uppercase mb-1 block">Catatan (Opsional)</label><textarea rows="2" value={endNote} onChange={e => setEndNote(e.target.value)} className="w-full bg-navy-900 border border-navy-600 rounded-xl px-4 py-2 text-white text-sm focus:border-neon outline-none" placeholder="Selisih karena..."></textarea></div>
                         </div>
-
-                        <button onClick={handleCloseShift} disabled={processing} className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-red-600/20 transition">
-                            {processing ? 'Menghitung...' : 'Tutup Shift'}
-                        </button>
+                        <button onClick={handleCloseShift} disabled={processing} className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-red-600/20 transition">{processing ? 'Menghitung...' : 'Tutup Shift'}</button>
                     </div>
                 </div>
             )}
 
-            {/* --- MODAL 3: RINGKASAN CLOSING (GANTI ALERT BROWSER) --- */}
+            {/* Modal Summary */}
             {showSummaryModal && closingData && (
                 <div className="fixed inset-0 z-[80] bg-navy-950/95 backdrop-blur-md flex items-center justify-center p-4">
                     <div className="bg-navy-800 w-full max-w-md rounded-3xl border border-navy-600 shadow-2xl p-0 overflow-hidden animate-fade-in-up">
                         <div className="bg-gradient-to-br from-green-500/20 to-navy-900 p-8 text-center border-b border-navy-700">
-                            <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-[0_0_20px_rgba(34,197,94,0.4)]">
-                                <i className="fa-solid fa-check text-4xl text-navy-900"></i>
-                            </div>
+                            <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-[0_0_20px_rgba(34,197,94,0.4)]"><i className="fa-solid fa-check text-4xl text-navy-900"></i></div>
                             <h3 className="font-black text-2xl text-white tracking-wide uppercase">Shift Ditutup</h3>
                             <p className="text-green-400 text-sm font-bold mt-1">Laporan berhasil disimpan</p>
                         </div>
-                        
                         <div className="p-6 space-y-4">
-                            <div className="flex justify-between items-center py-2 border-b border-navy-700">
-                                <span className="text-slate-400 text-sm">Modal Awal</span>
-                                <span className="text-white font-bold font-mono">Rp {parseInt(closingData.modal_awal).toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between items-center py-2 border-b border-navy-700">
-                                <span className="text-slate-400 text-sm">Penjualan Tunai</span>
-                                <span className="text-neon font-bold font-mono">+ Rp {parseInt(closingData.penjualan_tunai).toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between items-center py-2 border-b border-navy-700 bg-navy-900/50 px-3 rounded-lg">
-                                <span className="text-slate-300 text-sm font-bold">Total Seharusnya</span>
-                                <span className="text-white font-bold font-mono">Rp {parseInt(closingData.seharusnya_ada).toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between items-center py-2">
-                                <span className="text-slate-400 text-sm">Uang Fisik (Aktual)</span>
-                                <span className="text-white font-bold font-mono">Rp {parseInt(closingData.fisik_uang).toLocaleString()}</span>
-                            </div>
-                            
-                            {/* SELISIH */}
-                            <div className={`flex justify-between items-center p-3 rounded-xl border ${parseInt(closingData.selisih) === 0 ? 'bg-green-500/10 border-green-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
-                                <span className={`text-sm font-bold ${parseInt(closingData.selisih) === 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                    {parseInt(closingData.selisih) === 0 ? 'Balance (Sesuai)' : 'Selisih'}
-                                </span>
-                                <span className={`font-bold font-mono ${parseInt(closingData.selisih) === 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                    Rp {parseInt(closingData.selisih).toLocaleString()}
-                                </span>
-                            </div>
+                            <div className="flex justify-between items-center py-2 border-b border-navy-700"><span className="text-slate-400 text-sm">Modal Awal</span><span className="text-white font-bold font-mono">Rp {parseInt(closingData.modal_awal).toLocaleString()}</span></div>
+                            <div className="flex justify-between items-center py-2 border-b border-navy-700"><span className="text-slate-400 text-sm">Penjualan Tunai</span><span className="text-neon font-bold font-mono">+ Rp {parseInt(closingData.penjualan_tunai).toLocaleString()}</span></div>
+                            <div className="flex justify-between items-center py-2 border-b border-navy-700 bg-navy-900/50 px-3 rounded-lg"><span className="text-slate-300 text-sm font-bold">Total Seharusnya</span><span className="text-white font-bold font-mono">Rp {parseInt(closingData.seharusnya_ada).toLocaleString()}</span></div>
+                            <div className="flex justify-between items-center py-2"><span className="text-slate-400 text-sm">Uang Fisik (Aktual)</span><span className="text-white font-bold font-mono">Rp {parseInt(closingData.fisik_uang).toLocaleString()}</span></div>
+                            <div className={`flex justify-between items-center p-3 rounded-xl border ${parseInt(closingData.selisih) === 0 ? 'bg-green-500/10 border-green-500/30' : 'bg-red-500/10 border-red-500/30'}`}><span className={`text-sm font-bold ${parseInt(closingData.selisih) === 0 ? 'text-green-500' : 'text-red-500'}`}>{parseInt(closingData.selisih) === 0 ? 'Balance (Sesuai)' : 'Selisih'}</span><span className={`font-bold font-mono ${parseInt(closingData.selisih) === 0 ? 'text-green-500' : 'text-red-500'}`}>Rp {parseInt(closingData.selisih).toLocaleString()}</span></div>
                         </div>
-
                         <div className="p-4 bg-navy-950 border-t border-navy-800">
-                            <button 
-                                onClick={() => window.location.reload()} 
-                                className="w-full bg-navy-700 hover:bg-white hover:text-navy-900 text-white font-bold py-3 rounded-xl transition"
-                            >
-                                <i className="fa-solid fa-arrow-rotate-right mr-2"></i> Mulai Shift Baru
-                            </button>
+                            <button onClick={() => window.location.reload()} className="w-full bg-navy-700 hover:bg-white hover:text-navy-900 text-white font-bold py-3 rounded-xl transition"><i className="fa-solid fa-arrow-rotate-right mr-2"></i> Mulai Shift Baru</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* --- MODAL 4: KONFIRMASI CHECKOUT (CUSTOM UI) --- */}
+            {/* Modal Checkout */}
             {showCheckoutModal && (
                 <div className="fixed inset-0 z-[70] bg-navy-950/90 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="bg-navy-800 w-full max-w-sm rounded-2xl border border-navy-600 shadow-2xl p-6 text-center animate-bounce-small">
-                        
                         <h3 className="font-bold text-xl text-white mb-1">Konfirmasi Pembayaran</h3>
                         <p className="text-slate-400 text-sm mb-4 uppercase tracking-wider">{paymentMethod.replace('_', ' ')}</p>
-
                         <div className="bg-navy-900 p-4 rounded-xl border border-navy-700 mb-4">
                             <p className="text-xs text-slate-400 mb-1">Total Tagihan</p>
                             <p className="text-2xl font-bold text-white">Rp {cartTotal.toLocaleString()}</p>
                         </div>
-
-                        {/* INPUT UANG CASH (HANYA JIKA METODE CASH) */}
                         {paymentMethod === 'cash' && (
                             <div className="mb-6 animate-fade-in">
                                 <label className="text-xs text-slate-400 font-bold uppercase mb-2 block text-left">Uang Diterima</label>
-                                <input 
-                                    type="number" 
-                                    placeholder="Rp 0" 
-                                    value={customerCash} 
-                                    onChange={e => setCustomerCash(e.target.value)} 
-                                    className="w-full bg-navy-900 border border-navy-600 rounded-xl px-4 py-3 text-white text-lg font-bold mb-3 focus:border-neon outline-none" 
-                                    autoFocus
-                                />
-                                
+                                <input type="number" placeholder="Rp 0" value={customerCash} onChange={e => setCustomerCash(e.target.value)} className="w-full bg-navy-900 border border-navy-600 rounded-xl px-4 py-3 text-white text-lg font-bold mb-3 focus:border-neon outline-none" autoFocus />
                                 <div className="flex justify-between items-center px-2">
                                     <span className="text-sm text-slate-400">Kembalian:</span>
-                                    <span className={`font-bold text-lg ${calculateChange() < 0 ? 'text-red-500' : 'text-neon'}`}>
-                                        Rp {calculateChange().toLocaleString()}
-                                    </span>
+                                    <span className={`font-bold text-lg ${calculateChange() < 0 ? 'text-red-500' : 'text-neon'}`}>Rp {calculateChange().toLocaleString()}</span>
                                 </div>
                             </div>
                         )}
-                        
                         <div className="flex gap-3 mt-4">
-                            <button 
-                                onClick={() => setShowCheckoutModal(false)}
-                                className="flex-1 bg-navy-900 hover:bg-navy-700 text-slate-300 font-bold py-3 rounded-xl border border-navy-600 transition"
-                            >
-                                Batal
-                            </button>
-                            <button 
-                                onClick={executeCheckout}
-                                disabled={processing || (paymentMethod === 'cash' && calculateChange() < 0)}
-                                className={`flex-1 font-bold py-3 rounded-xl shadow-lg transition ${
-                                    paymentMethod === 'cash' && calculateChange() < 0
-                                    ? 'bg-navy-700 text-slate-500 cursor-not-allowed'
-                                    : 'bg-neon hover:bg-neon-hover text-navy-900 shadow-neon/20'
-                                }`}
-                            >
-                                {processing ? 'Proses...' : 'Bayar'}
-                            </button>
+                            <button onClick={() => setShowCheckoutModal(false)} className="flex-1 bg-navy-900 hover:bg-navy-700 text-slate-300 font-bold py-3 rounded-xl border border-navy-600 transition">Batal</button>
+                            <button onClick={executeCheckout} disabled={processing || (paymentMethod === 'cash' && calculateChange() < 0)} className={`flex-1 font-bold py-3 rounded-xl shadow-lg transition ${paymentMethod === 'cash' && calculateChange() < 0 ? 'bg-navy-700 text-slate-500 cursor-not-allowed' : 'bg-neon hover:bg-neon-hover text-navy-900 shadow-neon/20'}`}>{processing ? 'Proses...' : 'Bayar'}</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* --- MODAL 5: SUKSES TRANSAKSI (PRINT STRUK) --- */}
+            {/* Modal Success */}
             {showSuccessModal && (
                 <div className="fixed inset-0 z-[80] bg-navy-950/95 backdrop-blur-md flex items-center justify-center p-4">
                     <div className="bg-navy-800 w-full max-w-sm rounded-3xl border border-navy-600 shadow-2xl p-0 overflow-hidden animate-fade-in-up text-center">
                         <div className="p-8">
-                            <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-[0_0_20px_rgba(34,197,94,0.4)]">
-                                <i className="fa-solid fa-receipt text-3xl text-navy-900"></i>
-                            </div>
+                            <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-[0_0_20px_rgba(34,197,94,0.4)]"><i className="fa-solid fa-receipt text-3xl text-navy-900"></i></div>
                             <h3 className="font-bold text-2xl text-white mb-2">Transaksi Berhasil!</h3>
                             <p className="text-slate-400 text-sm">Pembayaran telah diterima.</p>
                         </div>
-
                         <div className="p-6 bg-navy-900 border-t border-navy-700 flex flex-col gap-3">
-                            <button 
-                                onClick={handlePrint}
-                                className="w-full bg-white hover:bg-gray-200 text-navy-900 font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
-                            >
-                                <i className="fa-solid fa-print"></i> Cetak Struk
-                            </button>
-                            <button 
-                                onClick={() => setShowSuccessModal(false)}
-                                className="w-full bg-navy-800 hover:bg-navy-700 text-slate-300 font-bold py-3 rounded-xl border border-navy-600 transition"
-                            >
-                                Transaksi Baru
-                            </button>
+                            <button onClick={handlePrint} className="w-full bg-white hover:bg-gray-200 text-navy-900 font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"><i className="fa-solid fa-print"></i> Cetak Struk</button>
+                            <button onClick={() => setShowSuccessModal(false)} className="w-full bg-navy-800 hover:bg-navy-700 text-slate-300 font-bold py-3 rounded-xl border border-navy-600 transition">Transaksi Baru</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* NOTIFIKASI TOAST */}
             {notif.show && (
                 <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] bg-navy-800 border border-navy-600 shadow-2xl px-6 py-3 rounded-full flex items-center gap-3 animate-slide-up">
                     <i className={`fa-solid ${notif.isError ? 'fa-triangle-exclamation text-red-500' : 'fa-circle-check text-green-500'}`}></i>
